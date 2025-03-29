@@ -1,12 +1,20 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AIService {
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
+
   // 注意：实际使用时需要替换为真实的API密钥
-  static const String _apiKey =
-      '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';
+  static Future<String> get _apiKey async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedKey = prefs.getString('apiKey');
+    if (storedKey == null || storedKey.isEmpty) {
+      throw Exception('请先配置API密钥');
+    }
+    return storedKey;
+  }
   static const String _modelName = 'deepseek/deepseek-chat-v3-0324:free';
 
   static const String _systemPrompt = '''
@@ -55,7 +63,7 @@ class AIService {
           Uri.parse(_baseUrl),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer $_apiKey',
+            'Authorization': 'Bearer ${await _apiKey}',
             'HTTP-Referer': 'https://teacher-app.com',
             'X-Title': 'Teacher App',
             'User-Agent': 'TeacherApp/1.0',
