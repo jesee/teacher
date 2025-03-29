@@ -4,6 +4,9 @@ A new Flutter project.
 
 ## Getting Started
 
+下载安装app后，你需要在openrouter上面创建一个apikey，并在设置页面填写你创建的key
+之后就可以使用app了
+
 This project is a starting point for a Flutter application.
 
 A few resources to get you started if this is your first Flutter project:
