@@ -7,22 +7,62 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 class SpeechService {
   final FlutterTts _tts = FlutterTts();
+  bool _isPlaying = false;
+  bool get isPlaying => _isPlaying;
+  int? _currentPlayingMessageId;
+  int? get currentPlayingMessageId => _currentPlayingMessageId;
 
-  Future<void> initializeTts() async {
-    await _tts.setLanguage("zh-CN");
-    await _tts.setSpeechRate(0.5);
+  double _currentRate = 0.4;
+  String _currentLanguage = "en-US";
+
+  Future<void> setRate(double rate) async {
+    _currentRate = rate;
+    await _tts.setSpeechRate(rate);
   }
 
-  Future<void> speak(String text) async {
+  Future<void> setLanguage(String language) async {
+    _currentLanguage = language;
+    await _tts.setLanguage(language);
+  }
+
+  Future<void> initializeTts() async {
+    await _tts.setLanguage(_currentLanguage);
+    await _tts.setSpeechRate(_currentRate);
+    await _tts.setPitch(1.0);
+    await _tts.setVolume(1.0);
+    _tts.setCompletionHandler(() {
+      _isPlaying = false;
+      _onPlayingStateChanged?.call(_isPlaying);
+    });
+  }
+
+  Function(bool)? _onPlayingStateChanged;
+  void setOnPlayingStateChanged(Function(bool) callback) {
+    _onPlayingStateChanged = callback;
+  }
+
+  Future<void> speak(String text, {String language = "en-US", double rate = 0.4, int? messageId}) async {
     try {
+      if (_isPlaying) {
+        await stop();
+      }
+      _currentPlayingMessageId = messageId;
+      await _tts.setLanguage(language);
+      await _tts.setSpeechRate(rate);
+      _isPlaying = true;
+      _onPlayingStateChanged?.call(_isPlaying);
       await _tts.speak(text);
     } catch (e) {
+      _isPlaying = false;
       throw Exception('语音播放失败: $e');
     }
   }
 
   Future<void> stop() async {
     await _tts.stop();
+    _isPlaying = false;
+    _currentPlayingMessageId = null;
+    _onPlayingStateChanged?.call(_isPlaying);
   }
   static final SpeechService _instance = SpeechService._internal();
   factory SpeechService() => _instance;

@@ -49,8 +49,30 @@ class DatabaseService {
   // 保存对话
   Future<int> saveConversation(Conversation conversation) async {
     final db = await database;
-    int id = await db.insert('conversations', conversation.toMap());
+    int id;
     
+    if (conversation.id != null) {
+      // 更新现有对话
+      await db.update(
+        'conversations',
+        conversation.toMap(),
+        where: 'id = ?',
+        whereArgs: [conversation.id],
+      );
+      id = conversation.id!;
+      
+      // 删除旧消息
+      await db.delete(
+        'messages',
+        where: 'conversationId = ?',
+        whereArgs: [id],
+      );
+    } else {
+      // 创建新对话
+      id = await db.insert('conversations', conversation.toMap());
+    }
+    
+    // 插入新消息
     for (var message in conversation.messages) {
       await db.insert('messages', {
         ...message.toMap(),

@@ -120,21 +120,64 @@ class _HomeScreenState extends State<HomeScreen> {
                           itemCount: _conversations.length,
                           itemBuilder: (context, index) {
                             final conversation = _conversations[index];
-                            return ListTile(
-                              title: Text(conversation.title),
-                              subtitle: Text(
-                                '${conversation.messages.length}条消息 · ${conversation.createdAt.toString().substring(0, 16)}',
+                            return Dismissible(
+                              key: Key(conversation.id.toString()),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                color: Colors.red,
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 16.0),
+                                child: const Icon(
+                                  Icons.delete,
+                                  color: Colors.white,
+                                ),
                               ),
-                              onTap: () {
-                                if (!mounted) return;
-                                Navigator.pushNamed(
-                                  context,
-                                  '/conversation',
-                                  arguments: conversation.id,
-                                ).then((_) {
-                                  _loadConversations();
-                                });
+                              confirmDismiss: (direction) async {
+                                return await showDialog(
+                                  context: context,
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      title: const Text('确认删除'),
+                                      content: const Text('确定要删除这个对话吗？'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.of(context).pop(false),
+                                          child: const Text('取消'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.of(context).pop(true),
+                                          child: const Text('删除'),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
                               },
+                              onDismissed: (direction) async {
+                                await context.read<ConversationProvider>().deleteConversation(conversation.id!);
+                                _loadConversations();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('对话已删除')),
+                                  );
+                                }
+                              },
+                              child: ListTile(
+                                title: Text(conversation.title),
+                                subtitle: Text(
+                                  '${conversation.messages.length}条消息 · ${conversation.createdAt.toString().substring(0, 16)}',
+                                ),
+                                onTap: () {
+                                  if (!mounted) return;
+                                  Navigator.pushNamed(
+                                    context,
+                                    '/conversation',
+                                    arguments: conversation.id,
+                                  ).then((_) {
+                                    _loadConversations();
+                                  });
+                                },
+                              ),
                             );
                           },
                         ),

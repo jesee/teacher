@@ -19,10 +19,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final SpeechService _speechService = SpeechService();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _speechService.setOnPlayingStateChanged((isPlaying) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args != null && args is int) {
@@ -30,6 +36,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
         final conversation = await DatabaseService().getConversation(args);
         if (conversation != null && mounted) {
           await context.read<ConversationProvider>().loadConversation(conversation);
+          // 滚动到最新消息
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
         }
       } else {
         // 如果是新对话，清空消息列表
@@ -94,6 +108,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _textController.dispose();
     _focusNode.dispose();
     _speechService.stopListening();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -110,20 +125,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
           setState(() {
             _textController.text = text;
           });
-          provider.addMessage(Message(content: text, isUser: true, timestamp: DateTime.now()));
+          await provider.addMessage(Message(content: text, isUser: true, timestamp: DateTime.now()));
           _textController.clear();
 
-          // 处理AI回复并播放语音
+          // 等待AI回复完成后再播放语音
           try {
-            final responseText = await AIService().getAIResponse(text, provider.messages.map((m) => m.toMap()).toList());
-          provider.addMessage(
-            Message(
-              content: responseText,
-              isUser: false,
-              timestamp: DateTime.now(),
-            ),
-          );
-            await _speechService.speak(responseText);
+            final lastMessage = provider.messages.last;
+            if (!lastMessage.isUser) {
+              await _speechService.speak(lastMessage.content);
+            }
           } catch (e) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('AI回复失败: $e'))
@@ -155,6 +165,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 return Stack(
                   children: [
                     ListView.builder(
+                      controller: _scrollController,
                       padding: const EdgeInsets.all(8.0),
                       itemCount: provider.messages.length,
                       itemBuilder: (context, index) {
@@ -173,7 +184,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                     : Colors.grey[300],
                                 borderRadius: BorderRadius.circular(8.0),
                               ),
-                              child: Text(message.content),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(message.content),
+                                  if (!message.isUser) ...[  // 只在AI回复的消息中显示播放/停止按钮
+                                    const SizedBox(height: 4.0),
+                                    IconButton(
+                                      icon: Icon(
+                                        (_speechService.isPlaying && _speechService.currentPlayingMessageId == message.id) ? Icons.stop : Icons.play_arrow,
+                                        size: 20
+                                      ),
+                                      onPressed: () async {
+                                        if (_speechService.isPlaying && _speechService.currentPlayingMessageId == message.id) {
+                                          await _speechService.stop();
+                                        } else {
+                                          await _speechService.speak(message.content, messageId: message.id);
+                                        }
+                                        setState(() {});
+                                      }
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -236,21 +270,39 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         _focusNode.requestFocus();
                       }
                     },
-                    onSubmitted: (text) {
-  if (text.isNotEmpty) {
-    context.read<ConversationProvider>().addMessage(Message(content: text, isUser: true, timestamp: DateTime.now()));
-    _textController.clear();
-  }
-},
+                    onSubmitted: (text) async {
+                      if (text.isNotEmpty) {
+                        final currentText = text;
+                        _textController.clear();
+                        await context.read<ConversationProvider>().addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+                        // 滚动到最新消息
+                        if (_scrollController.hasClients) {
+                          _scrollController.animateTo(
+                            _scrollController.position.maxScrollExtent,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOut,
+                          );
+                        }
+                      }
+                    },
                   ),
                 ),
                 const SizedBox(width: 8.0),
                 IconButton(
                   icon: const Icon(Icons.send),
-                  onPressed: () {
+                  onPressed: () async {
                     if (_textController.text.isNotEmpty) {
-                      context.read<ConversationProvider>().addMessage(Message(content: _textController.text, isUser: true, timestamp: DateTime.now()));
+                      final currentText = _textController.text;
                       _textController.clear();
+                      await context.read<ConversationProvider>().addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+                      // 滚动到最新消息
+                      if (_scrollController.hasClients) {
+                        _scrollController.animateTo(
+                          _scrollController.position.maxScrollExtent,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOut,
+                        );
+                      }
                     }
                   },
                 ),
