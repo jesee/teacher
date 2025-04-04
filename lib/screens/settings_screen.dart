@@ -87,6 +87,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(),
           
+          // 版本信息
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('版本信息'),
+            subtitle: const Text('v1.0.0'),
+          ),
+          const Divider(),
+          
           // 这里可以添加其他设置选项
           // 例如：主题设置、通知设置等
         ],

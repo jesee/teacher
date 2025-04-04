@@ -107,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       children: [
                         const Text(
-                          '历史对话',
+                          '对话列表',
                           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                         const Spacer(),
@@ -135,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  '暂无历史对话',
+                                  '暂无对话',
                                   style: TextStyle(
                                     fontSize: 16,
                                     color: Colors.grey[600],
