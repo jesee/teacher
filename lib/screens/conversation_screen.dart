@@ -6,6 +6,84 @@ import '../services/ai_service.dart';
 import '../models/conversation.dart';
 import '../services/speech_service.dart';
 import '../services/database_service.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+
+// 自定义代码块构建器
+class CustomCodeBlockBuilder extends MarkdownElementBuilder {
+  final BuildContext context;
+
+  CustomCodeBlockBuilder(this.context);
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    var language = '';
+    if (element.attributes['class'] != null) {
+      String lg = element.attributes['class'] as String;
+      language = lg.substring(9); // 移除 'language-' 前缀
+    }
+
+    final String code = element.textContent;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black12,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (language.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                language,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: SelectableText(
+                  code,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 8,
+                top: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.copy, size: 20),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    // 显示复制成功提示
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('代码已复制到剪贴板'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  tooltip: '复制代码',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({super.key});
@@ -149,7 +227,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 language: 'zh-CN',
                 rate: settings.speechRate,
                 pitch: settings.speechPitch,
-                messageId: provider.messages.last.id
+                utteranceId: 'message_${provider.messages.last.id}'
               );
             }
           }
@@ -190,66 +268,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                             alignment: message.isUser
                                 ? Alignment.centerRight
                                 : Alignment.centerLeft,
-                            child: Container(
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: BoxDecoration(
-                                color: message.isUser
-                                    ? Colors.blue[100]
-                                    : Colors.grey[300],
-                                borderRadius: BorderRadius.circular(8.0),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (message.isLoading)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        SizedBox(
-                                          width: 40,
-                                          height: 20,
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                            children: List.generate(3, (index) {
-                                              return _buildBouncingDot(index);
-                                            }),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        const Text('正在思考...', style: TextStyle(fontSize: 14, color: Colors.grey)),
-                                      ],
-                                    )
-                                  else
-                                    Text(message.content),
-                                  if (!message.isUser && !message.isLoading) ...[  // 只在AI回复且非加载中的消息显示播放/停止按钮
-                                    const SizedBox(height: 4.0),
-                                    IconButton(
-                                      icon: Icon(
-                                        (_speechService.isPlaying && _speechService.currentPlayingMessageId == message.id) ? Icons.stop : Icons.play_arrow,
-                                        size: 20
-                                      ),
-                                      onPressed: () async {
-                                        if (_speechService.isPlaying && _speechService.currentPlayingMessageId == message.id) {
-                                          await _speechService.stop();
-                                        } else {
-                                          // 获取语音设置
-                                          final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
-                                          await _speechService.speak(
-                                            message.content, 
-                                            language: 'zh-CN',
-                                            rate: settings.speechRate,
-                                            pitch: settings.speechPitch,
-                                            messageId: message.id
-                                          );
-                                        }
-                                        setState(() {});
-                                      }
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                            child: _buildMessageBubble(message),
                           ),
                         );
                       },
@@ -337,7 +356,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               language: 'zh-CN',
                               rate: settings.speechRate,
                               pitch: settings.speechPitch,
-                              messageId: provider.messages.last.id
+                              utteranceId: 'message_${provider.messages.last.id}'
                             );
                           }
                         }
@@ -371,7 +390,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                             language: 'zh-CN',
                             rate: settings.speechRate,
                             pitch: settings.speechPitch,
-                            messageId: provider.messages.last.id
+                            utteranceId: 'message_${provider.messages.last.id}'
                           );
                         }
                       }
@@ -401,6 +420,95 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMessageContent(Message message) {
+    if (message.isLoading) {
+      return Row(
+        children: [
+          const Text("AI正在思考"),
+          const SizedBox(width: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (index) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _buildBouncingDot(index),
+            )),
+          ),
+        ],
+      );
+    }
+
+    final messageId = 'message_${message.id}';
+    final isCurrentlyPlaying = _speechService.isPlaying && _speechService.currentPlayingId == messageId;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SelectionArea(
+          child: MarkdownBody(
+            data: message.content,
+            selectable: false,
+            shrinkWrap: true,
+            builders: {
+              'code': CustomCodeBlockBuilder(context),
+            },
+            styleSheet: MarkdownStyleSheet(
+              p: const TextStyle(fontSize: 16),
+              code: const TextStyle(
+                backgroundColor: Colors.black12,
+                fontFamily: 'monospace',
+              ),
+              codeblockDecoration: BoxDecoration(
+                // color: Colors.black12,
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+        if (!message.isUser)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: IconButton(
+              icon: Icon(
+                isCurrentlyPlaying ? Icons.stop : Icons.volume_up,
+                size: 20,
+                color: isCurrentlyPlaying ? Colors.blue : null,
+              ),
+              onPressed: () async {
+                final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+                await _speechService.speak(
+                  message.content,
+                  language: 'zh-CN',
+                  rate: settings.speechRate,
+                  pitch: settings.speechPitch,
+                  utteranceId: messageId,
+                );
+                // 强制刷新UI以更新图标状态
+                if (mounted) setState(() {});
+              },
+              tooltip: isCurrentlyPlaying ? '停止播放' : '朗读消息',
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMessageBubble(Message message) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: message.isUser ? Colors.blue[100] : Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildMessageContent(message),
+        ],
+      ),
     );
   }
 

@@ -9,8 +9,8 @@ class SpeechService {
   final FlutterTts _tts = FlutterTts();
   bool _isPlaying = false;
   bool get isPlaying => _isPlaying;
-  int? _currentPlayingMessageId;
-  int? get currentPlayingMessageId => _currentPlayingMessageId;
+  String? _currentPlayingId;
+  String? get currentPlayingId => _currentPlayingId;
 
   double _currentRate = 0.4;
   double _currentPitch = 1.0;
@@ -51,38 +51,59 @@ class SpeechService {
     _onPlayingStateChanged = callback;
   }
 
-  Future<void> speak(String text, {String language = "en-US", double rate = 0.4, double pitch = 1.0, int? messageId}) async {
-    try {
-      debugPrint('准备朗读文本，ID: $messageId, 语言: $language, 语速: $rate, 语调: $pitch');
-      if (_isPlaying) {
-        debugPrint('有正在进行的朗读，停止它');
-        await stop();
-      }
-      _currentPlayingMessageId = messageId;
-      await _tts.setLanguage(language);
-      await _tts.setSpeechRate(rate);
-      await _tts.setPitch(pitch);
-      _isPlaying = true;
-      _onPlayingStateChanged?.call(_isPlaying);
-      debugPrint('开始朗读');
-      await _tts.speak(text);
-    } catch (e) {
-      _isPlaying = false;
-      debugPrint('语音播放失败: $e');
-      throw Exception('语音播放失败: $e');
+  Future<void> speak(
+    String text, {
+    String language = 'zh-CN',
+    double rate = 1.0,
+    double pitch = 1.0,
+    String? utteranceId,
+  }) async {
+    if (_isPlaying && utteranceId == _currentPlayingId) {
+      await stop();
+      return;
     }
+    
+    if (_isPlaying) {
+      await stop();
+    }
+    
+    await _tts.setLanguage(language);
+    await _tts.setSpeechRate(rate);
+    await _tts.setPitch(pitch);
+    
+    _isPlaying = true;
+    _currentPlayingId = utteranceId;
+    _onPlayingStateChanged?.call(_isPlaying);
+    
+    await _tts.speak(text);
   }
 
   Future<void> stop() async {
     await _tts.stop();
     _isPlaying = false;
-    _currentPlayingMessageId = null;
+    _currentPlayingId = null;
     _onPlayingStateChanged?.call(_isPlaying);
   }
   static final SpeechService _instance = SpeechService._internal();
   factory SpeechService() => _instance;
 
-  SpeechService._internal();
+  SpeechService._internal() {
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    await _tts.setLanguage(_currentLanguage);
+    await _tts.setSpeechRate(_currentRate);
+    await _tts.setPitch(_currentPitch);
+    await _tts.setVolume(1.0);
+    
+    // 设置完成回调
+    _tts.setCompletionHandler(() {
+      _isPlaying = false;
+      _currentPlayingId = null;
+      _onPlayingStateChanged?.call(_isPlaying);
+    });
+  }
 
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
