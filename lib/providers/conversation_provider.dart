@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter/widgets.dart';
 import '../models/conversation.dart';
 import '../services/ai_service.dart';
 import '../services/database_service.dart';
 import '../services/speech_service.dart';
+import '../providers/speech_settings_provider.dart';
 
 class ConversationProvider with ChangeNotifier {
   final List<Message> _messages = [];
@@ -14,22 +17,58 @@ class ConversationProvider with ChangeNotifier {
   final AIService _aiService = AIService();
   final DatabaseService _databaseService = DatabaseService();
   Conversation? _currentConversation;
+  
+  // 添加一个BuildContext引用，用于访问Provider
+  BuildContext? _context;
+  
+  // 设置context的方法
+  void setContext(BuildContext context) {
+    _context = context;
+  }
+
+  Function? _onMessageAdded; // 消息添加回调
+  
+  // 设置消息添加回调
+  void setOnMessageAdded(Function callback) {
+    _onMessageAdded = callback;
+  }
 
   Future<void> addMessage(Message message) async {
     _messages.add(Message(content: message.content, isUser: true, timestamp: DateTime.now()));
     notifyListeners();
+    
+    // 触发消息添加回调
+    _onMessageAdded?.call();
+    
     await _saveConversation();
     
+    // 添加一个AI回复的加载中状态消息
+    final loadingMessage = Message(
+      content: "", // 使用空内容，UI层会显示加载动画 
+      isUser: false, 
+      timestamp: DateTime.now(),
+      isLoading: true
+    );
+    _messages.add(loadingMessage);
     _isLoading = true;
     notifyListeners();
+    
+    // 再次触发消息添加回调
+    _onMessageAdded?.call();
 
     try {
-      final history = _messages.map((m) => {
-        'isUser': m.isUser,
-        'content': m.content,
-      }).toList();
+      final history = _messages
+        .where((m) => !m.isLoading) // 排除加载中的消息
+        .map((m) => {
+          'isUser': m.isUser,
+          'content': m.content,
+        }).toList();
 
       final response = await _aiService.getAIResponse(message.content, history);
+      
+      // 移除加载中的消息
+      _messages.removeWhere((m) => m.isLoading);
+      
       if (response.contains('抱歉') || response.contains('错误')) {
         print('AI Service returned error: $response');
         // 如果是网络错误，我们给出更友好的提示
@@ -44,14 +83,12 @@ class ConversationProvider with ChangeNotifier {
         }
       } else {
         await addAIResponse(response);
-        // 获取最后一条消息并播放语音
-        if (_messages.isNotEmpty && !_messages.last.isUser) {
-          final speechService = SpeechService();
-          await speechService.speak(_messages.last.content, messageId: _messages.last.id);
-        }
+        // 移除此处的自动语音播放，由ConversationScreen控制
       }
     } catch (e) {
       print('Error in addMessage: $e');
+      // 移除加载中的消息
+      _messages.removeWhere((m) => m.isLoading);
       await addAIResponse('抱歉，处理消息时遇到了问题，请稍后再试。');
     } finally {
       _isLoading = false;
@@ -63,15 +100,13 @@ class ConversationProvider with ChangeNotifier {
     final message = Message(content: content, isUser: false, timestamp: DateTime.now());
     _messages.add(message);
     notifyListeners();
+    
+    // 触发消息添加回调
+    _onMessageAdded?.call();
+    
     await _saveConversation();
     
-    // 自动播放AI回复的语音
-    try {
-      final speechService = SpeechService();
-      await speechService.speak(content, messageId: message.id);
-    } catch (e) {
-      print('语音播放失败: $e');
-    }
+    // 移除此处的自动语音播放，由ConversationScreen控制
   }
 
   void clearMessages() {
@@ -123,5 +158,4 @@ class ConversationProvider with ChangeNotifier {
       );
     }
   }
-
 }

@@ -3,10 +3,12 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AIService {
-  static const String _baseUrl =
-      'https://openrouter.ai/api/v1/chat/completions';
+  static Future<String> get _apiUrl async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedUrl = prefs.getString('apiUrl');
+    return storedUrl ?? 'https://openrouter.ai/api/v1/chat/completions';
+  }
 
-  // 注意：实际使用时需要替换为真实的API密钥
   static Future<String> get _apiKey async {
     final prefs = await SharedPreferences.getInstance();
     final storedKey = prefs.getString('apiKey');
@@ -15,7 +17,12 @@ class AIService {
     }
     return storedKey;
   }
-  static const String _modelName = 'deepseek/deepseek-chat-v3-0324:free';
+  
+  static Future<String> get _modelName async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedModel = prefs.getString('modelName');
+    return storedModel ?? 'google/gemini-2.0-flash-thinking-exp:free';
+  }
 
   static const String _systemPrompt = '''
 你是一个专业的教育助手，你的主要职责是通过语音对话的方式帮助用户高效学习。请遵循以下步骤：
@@ -57,76 +64,57 @@ class AIService {
         }
 
         // 添加当前用户消息
-        messages.add({'role': 'user', 'content': prompt});
+        messages.add({
+          'role': 'user',
+          'content': prompt,
+        });
+
+        final apiUrl = await _apiUrl;
+        final apiKey = await _apiKey;
+        final modelName = await _modelName;
+
+        // 打印请求信息
+        print('发送请求到: $apiUrl');
+        print('使用模型: $modelName');
+        print('请求内容: ${jsonEncode(messages)}');
 
         final response = await http.post(
-          Uri.parse(_baseUrl),
+          Uri.parse(apiUrl),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${await _apiKey}',
-            'HTTP-Referer': 'https://teacher-app.com',
-            'X-Title': 'Teacher App',
-            'User-Agent': 'TeacherApp/1.0',
-            'Accept': 'application/json',
+            'Authorization': 'Bearer $apiKey',
           },
           body: jsonEncode({
-            'model': _modelName,
+            'model': modelName,
             'messages': messages,
-            'temperature': 0.7,
-            'max_tokens': 2000,
           }),
         );
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(utf8.decode(response.bodyBytes));
-          final content = data['choices']?[0]?['message']?['content'];
-          if (content != null) {
-            return content;
-          }
-          throw Exception('无效的API响应格式');
-        } else {
-          final errorBody = jsonDecode(utf8.decode(response.bodyBytes));
-          print('Error: ${response.statusCode}');
-          print('Response: ${errorBody}');
+        // 打印响应信息
+        print('响应状态码: ${response.statusCode}');
+        print('响应头: ${response.headers}');
+        print('原始响应内容: ${response.body}');
 
-          if (response.statusCode == 401) {
-            return '抱歉，API认证失败，请检查API密钥是否有效。';
-          } else if (response.statusCode == 429 || response.statusCode >= 500) {
-            if (retryCount < _maxRetries - 1) {
-              retryCount++;
-              await Future.delayed(_retryDelay * retryCount);
-              continue;
-            }
-            return response.statusCode == 429
-                ? '抱歉，请求过于频繁，请稍后再试。'
-                : '抱歉，服务器暂时不可用，请稍后再试。';
-          }
-          return '抱歉，我无法处理您的请求。请稍后再试。';
+        if (response.statusCode == 200) {
+          // 使用 utf8 解码响应内容
+          final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
+          print('解码后的响应内容: $jsonResponse');
+          
+          final content = jsonResponse['choices'][0]['message']['content'];
+          print('最终提取的内容: $content');
+          return content;
+        } else {
+          throw Exception('API请求失败: ${response.statusCode} ${utf8.decode(response.bodyBytes)}');
         }
       } catch (e) {
-        print('Exception: $e');
-        if (e.toString().contains('Connection refused') || 
-            e.toString().contains('SocketException') || 
-            e.toString().contains('TimeoutException')) {
-          if (retryCount < _maxRetries - 1) {
-            retryCount++;
-            print('Retrying... Attempt $retryCount of ${_maxRetries - 1}');
-            await Future.delayed(_retryDelay * retryCount);
-            continue;
-          }
-          return '抱歉，网络连接出现问题。请检查您的网络连接并稍后再试。';
+        print('发生错误: $e');
+        retryCount++;
+        if (retryCount >= _maxRetries) {
+          throw Exception('请求失败，请检查网络连接和API配置: $e');
         }
-        
-        if (retryCount < _maxRetries - 1) {
-          retryCount++;
-          print('Retrying... Attempt $retryCount of ${_maxRetries - 1}');
-          await Future.delayed(_retryDelay * retryCount);
-          continue;
-        }
-        return '抱歉，请求处理过程中出现错误，请稍后再试。错误信息：${e.toString()}';
+        await Future.delayed(_retryDelay);
       }
     }
-    return '抱歉，多次尝试后服务仍然不可用，请稍后再试。';
-
+    throw Exception('请求失败，已达到最大重试次数');
   }
 }

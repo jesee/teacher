@@ -35,6 +35,7 @@ class Message {
   final String content;
   final bool isUser;
   final DateTime timestamp;
+  final bool isLoading;
 
   Message({
     this.id,
@@ -42,6 +43,7 @@ class Message {
     required this.content,
     required this.isUser,
     required this.timestamp,
+    this.isLoading = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -61,6 +63,28 @@ class Message {
       content: map['content'],
       isUser: map['isUser'] == 1,
       timestamp: DateTime.parse(map['timestamp']),
+    );
+  }
+
+  Message copyWithLoading() {
+    return Message(
+      id: id,
+      conversationId: conversationId,
+      content: content,
+      isUser: isUser,
+      timestamp: timestamp,
+      isLoading: true,
+    );
+  }
+
+  Message copyWithContent(String newContent) {
+    return Message(
+      id: id,
+      conversationId: conversationId,
+      content: newContent,
+      isUser: isUser,
+      timestamp: timestamp,
+      isLoading: false,
     );
   }
 }

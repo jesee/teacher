@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:teacher/services/ai_service.dart';
-import 'api_config_screen.dart';
 import 'package:provider/provider.dart';
 import '../models/conversation.dart';
 import '../services/database_service.dart';
 import '../providers/conversation_provider.dart';
+import '../screens/settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -68,9 +68,10 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
+            tooltip: '设置',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const ApiConfigScreen()),
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
             ),
           )
         ],

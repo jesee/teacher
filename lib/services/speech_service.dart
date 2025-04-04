@@ -13,11 +13,19 @@ class SpeechService {
   int? get currentPlayingMessageId => _currentPlayingMessageId;
 
   double _currentRate = 0.4;
+  double _currentPitch = 1.0;
   String _currentLanguage = "en-US";
 
   Future<void> setRate(double rate) async {
+    debugPrint('设置语速: $rate');
     _currentRate = rate;
     await _tts.setSpeechRate(rate);
+  }
+
+  Future<void> setPitch(double pitch) async {
+    debugPrint('设置语调: $pitch');
+    _currentPitch = pitch;
+    await _tts.setPitch(pitch);
   }
 
   Future<void> setLanguage(String language) async {
@@ -26,14 +34,16 @@ class SpeechService {
   }
 
   Future<void> initializeTts() async {
+    debugPrint('初始化TTS引擎，当前语言: $_currentLanguage, 语速: $_currentRate, 语调: $_currentPitch');
     await _tts.setLanguage(_currentLanguage);
     await _tts.setSpeechRate(_currentRate);
-    await _tts.setPitch(1.0);
+    await _tts.setPitch(_currentPitch);
     await _tts.setVolume(1.0);
     _tts.setCompletionHandler(() {
       _isPlaying = false;
       _onPlayingStateChanged?.call(_isPlaying);
     });
+    debugPrint('TTS引擎初始化完成');
   }
 
   Function(bool)? _onPlayingStateChanged;
@@ -41,19 +51,24 @@ class SpeechService {
     _onPlayingStateChanged = callback;
   }
 
-  Future<void> speak(String text, {String language = "en-US", double rate = 0.4, int? messageId}) async {
+  Future<void> speak(String text, {String language = "en-US", double rate = 0.4, double pitch = 1.0, int? messageId}) async {
     try {
+      debugPrint('准备朗读文本，ID: $messageId, 语言: $language, 语速: $rate, 语调: $pitch');
       if (_isPlaying) {
+        debugPrint('有正在进行的朗读，停止它');
         await stop();
       }
       _currentPlayingMessageId = messageId;
       await _tts.setLanguage(language);
       await _tts.setSpeechRate(rate);
+      await _tts.setPitch(pitch);
       _isPlaying = true;
       _onPlayingStateChanged?.call(_isPlaying);
+      debugPrint('开始朗读');
       await _tts.speak(text);
     } catch (e) {
       _isPlaying = false;
+      debugPrint('语音播放失败: $e');
       throw Exception('语音播放失败: $e');
     }
   }
@@ -79,6 +94,9 @@ class SpeechService {
   Future<bool> initialize() async {
     try {
       debugPrint('正在初始化语音识别服务...');
+      // 初始化TTS
+      await initializeTts();
+      
       // 首先尝试初始化speech_to_text
       final isSupported = await _speech.initialize(
         onStatus: (status) {

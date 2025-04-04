@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/speech_settings_provider.dart';
 import '../services/ai_service.dart';
-import '../models/conversation.dart';
-import '../services/speech_service.dart';
 import '../models/conversation.dart';
 import '../services/speech_service.dart';
 import '../services/database_service.dart';
@@ -30,6 +29,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // 设置context给conversationProvider
+      final provider = Provider.of<ConversationProvider>(context, listen: false);
+      provider.setContext(context);
+      
+      // 设置消息添加回调，自动滚动到底部
+      provider.setOnMessageAdded(() {
+        _scrollToBottom();
+      });
+      
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args != null && args is int) {
         // 如果传入了conversationId，加载历史对话
@@ -37,13 +45,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (conversation != null && mounted) {
           await context.read<ConversationProvider>().loadConversation(conversation);
           // 滚动到最新消息
-          if (_scrollController.hasClients) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
+          _scrollToBottom();
         }
       } else {
         // 如果是新对话，清空消息列表
@@ -53,6 +55,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       // 初始化语音服务
       try {
         await _speechService.initialize();
+        
+        // 应用保存的设置
+        final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+        await _speechService.setRate(settings.speechRate);
+        await _speechService.setPitch(settings.speechPitch);
       } catch (e) {
         if (mounted) {
           if (e.toString().contains('需要麦克风权限')) {
@@ -128,16 +135,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
           await provider.addMessage(Message(content: text, isUser: true, timestamp: DateTime.now()));
           _textController.clear();
 
-          // 等待AI回复完成后再播放语音
-          try {
-            final lastMessage = provider.messages.last;
-            if (!lastMessage.isUser) {
-              await _speechService.speak(lastMessage.content);
+          // 等待AI回复完成（与其他方法保持一致）
+          while (provider.isLoading) {
+            await Future.delayed(const Duration(milliseconds: 100));
+          }
+          
+          // 现在AI回复已完成，检查是否应该自动朗读
+          if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+            final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+            if (settings.autoRead) {
+              await _speechService.speak(
+                provider.messages.last.content,
+                language: 'zh-CN',
+                rate: settings.speechRate,
+                pitch: settings.speechPitch,
+                messageId: provider.messages.last.id
+              );
             }
-          } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('AI回复失败: $e'))
-            );
           }
         }
       });
@@ -188,8 +202,27 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(message.content),
-                                  if (!message.isUser) ...[  // 只在AI回复的消息中显示播放/停止按钮
+                                  if (message.isLoading)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 40,
+                                          height: 20,
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                            children: List.generate(3, (index) {
+                                              return _buildBouncingDot(index);
+                                            }),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text('正在思考...', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                                      ],
+                                    )
+                                  else
+                                    Text(message.content),
+                                  if (!message.isUser && !message.isLoading) ...[  // 只在AI回复且非加载中的消息显示播放/停止按钮
                                     const SizedBox(height: 4.0),
                                     IconButton(
                                       icon: Icon(
@@ -200,7 +233,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                         if (_speechService.isPlaying && _speechService.currentPlayingMessageId == message.id) {
                                           await _speechService.stop();
                                         } else {
-                                          await _speechService.speak(message.content, messageId: message.id);
+                                          // 获取语音设置
+                                          final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+                                          await _speechService.speak(
+                                            message.content, 
+                                            language: 'zh-CN',
+                                            rate: settings.speechRate,
+                                            pitch: settings.speechPitch,
+                                            messageId: message.id
+                                          );
                                         }
                                         setState(() {});
                                       }
@@ -214,8 +255,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       },
                     ),
                     if (provider.isLoading)
-                      const Center(
-                        child: CircularProgressIndicator(),
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(), // 保留结构但不显示任何内容
                       ),
                     if (_speechService.isListening)
                       Positioned(
@@ -274,14 +318,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       if (text.isNotEmpty) {
                         final currentText = text;
                         _textController.clear();
-                        await context.read<ConversationProvider>().addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
-                        // 滚动到最新消息
-                        if (_scrollController.hasClients) {
-                          _scrollController.animateTo(
-                            _scrollController.position.maxScrollExtent,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                          );
+                        
+                        // 发送消息到AI
+                        final provider = context.read<ConversationProvider>();
+                        await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+                        
+                        // 等待AI回复完成（通过检查isLoading状态）
+                        while (provider.isLoading) {
+                          await Future.delayed(const Duration(milliseconds: 100));
+                        }
+                        
+                        // 现在AI回复已完成，检查是否自动朗读
+                        if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+                          final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+                          if (settings.autoRead) {
+                            await _speechService.speak(
+                              provider.messages.last.content,
+                              language: 'zh-CN',
+                              rate: settings.speechRate,
+                              pitch: settings.speechPitch,
+                              messageId: provider.messages.last.id
+                            );
+                          }
                         }
                       }
                     },
@@ -294,14 +352,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     if (_textController.text.isNotEmpty) {
                       final currentText = _textController.text;
                       _textController.clear();
-                      await context.read<ConversationProvider>().addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
-                      // 滚动到最新消息
-                      if (_scrollController.hasClients) {
-                        _scrollController.animateTo(
-                          _scrollController.position.maxScrollExtent,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOut,
-                        );
+                      
+                      // 发送消息到AI
+                      final provider = context.read<ConversationProvider>();
+                      await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+                      
+                      // 等待AI回复完成（通过检查isLoading状态）
+                      while (provider.isLoading) {
+                        await Future.delayed(const Duration(milliseconds: 100));
+                      }
+                      
+                      // 现在AI回复已完成，检查是否自动朗读
+                      if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+                        final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+                        if (settings.autoRead) {
+                          await _speechService.speak(
+                            provider.messages.last.content,
+                            language: 'zh-CN',
+                            rate: settings.speechRate,
+                            pitch: settings.speechPitch,
+                            messageId: provider.messages.last.id
+                          );
+                        }
                       }
                     }
                   },
@@ -312,5 +384,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildBouncingDot(int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 600),
+      curve: Curves.easeInOut,
+      builder: (context, value, child) {
+        return Container(
+          width: 6,
+          height: 6 + 4 * ((index == 0 ? value : index == 1 ? (value + 0.3) % 1 : (value + 0.6) % 1) * 0.8),
+          decoration: BoxDecoration(
+            color: Colors.grey[600],
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      },
+    );
+  }
+
+  // 滚动到底部的方法
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      });
+    }
   }
 }
