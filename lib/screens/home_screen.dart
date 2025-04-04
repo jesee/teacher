@@ -141,19 +141,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                     color: Colors.grey[600],
                                   ),
                                 ),
-                                const SizedBox(height: 24),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    Navigator.pushNamed(context, '/conversation').then((_) {
-                                      _loadConversations();
-                                    });
-                                  },
-                                  icon: const Icon(Icons.add),
-                                  label: const Text('开始新对话'),
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                  ),
-                                ),
                               ],
                             ),
                           )
