@@ -64,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI教学助手'),
+        title: const Text('AI学习助手'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),

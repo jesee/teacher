@@ -1,27 +1,26 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/database_service.dart';
 
 class AIService {
-  static Future<String> get _apiUrl async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedUrl = prefs.getString('apiUrl');
-    return storedUrl ?? 'https://openrouter.ai/api/v1/chat/completions';
-  }
+  final DatabaseService _databaseService = DatabaseService();
 
-  static Future<String> get _apiKey async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedKey = prefs.getString('apiKey');
-    if (storedKey == null || storedKey.isEmpty) {
-      throw Exception('请先配置API密钥');
+  Future<Map<String, String>> _getConfig() async {
+    final config = await _databaseService.getEnabledAIModelConfig();
+    
+    if (config == null) {
+      throw Exception('请先在设置中配置AI模型');
     }
-    return storedKey;
-  }
-  
-  static Future<String> get _modelName async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedModel = prefs.getString('modelName');
-    return storedModel ?? 'google/gemini-2.0-flash-thinking-exp:free';
+    
+    if (config['apiKey'] == null || config['apiKey'].toString().isEmpty) {
+      throw Exception('API密钥未配置，请在设置中完成模型配置');
+    }
+    
+    return {
+      'apiUrl': config['apiUrl'],
+      'apiKey': config['apiKey'],
+      'modelName': config['modelName'],
+    };
   }
 
   static const String _systemPrompt = '''
@@ -51,10 +50,12 @@ class AIService {
     int retryCount = 0;
     while (retryCount < _maxRetries) {
       try {
+        final config = await _getConfig();
+        
         final messages = [
           {'role': 'system', 'content': _systemPrompt},
         ];
-
+        
         // 添加历史消息
         for (var message in history) {
           messages.add({
@@ -62,59 +63,43 @@ class AIService {
             'content': message['content'],
           });
         }
-
-        // 添加当前用户消息
+        
+        // 添加当前用户的提问
         messages.add({
           'role': 'user',
           'content': prompt,
         });
-
-        final apiUrl = await _apiUrl;
-        final apiKey = await _apiKey;
-        final modelName = await _modelName;
-
-        // 打印请求信息
-        print('发送请求到: $apiUrl');
-        print('使用模型: $modelName');
-        print('请求内容: ${jsonEncode(messages)}');
-
+        
         final response = await http.post(
-          Uri.parse(apiUrl),
+          Uri.parse(config['apiUrl']!),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer $apiKey',
+            'Authorization': 'Bearer ${config['apiKey']}',
           },
           body: jsonEncode({
-            'model': modelName,
+            'model': config['modelName'],
             'messages': messages,
+            'temperature': 0.7,
           }),
         );
-
-        // 打印响应信息
-        print('响应状态码: ${response.statusCode}');
-        print('响应头: ${response.headers}');
-        print('原始响应内容: ${response.body}');
-
+        
         if (response.statusCode == 200) {
-          // 使用 utf8 解码响应内容
+          // 使用 utf8.decode 解决中文乱码问题
           final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-          print('解码后的响应内容: $jsonResponse');
-          
           final content = jsonResponse['choices'][0]['message']['content'];
-          print('最终提取的内容: $content');
           return content;
         } else {
           throw Exception('API请求失败: ${response.statusCode} ${utf8.decode(response.bodyBytes)}');
         }
       } catch (e) {
-        print('发生错误: $e');
         retryCount++;
         if (retryCount >= _maxRetries) {
-          throw Exception('请求失败，请检查网络连接和API配置: $e');
+          return '抱歉，我无法回答你的问题。错误: ${e.toString()}';
         }
         await Future.delayed(_retryDelay);
       }
     }
-    throw Exception('请求失败，已达到最大重试次数');
+    
+    return '抱歉，服务器暂时无法响应，请稍后再试。';
   }
 }

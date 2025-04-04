@@ -1,11 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/speech_settings_provider.dart';
+import '../services/database_service.dart';
 import 'speech_settings_screen.dart';
 import 'ai_model_config_screen.dart';
+import 'ai_model_list_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final DatabaseService _databaseService = DatabaseService();
+  Map<String, dynamic>? _currentModel;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentModel();
+  }
+
+  Future<void> _loadCurrentModel() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      final model = await _databaseService.getEnabledAIModelConfig();
+      setState(() {
+        _currentModel = model;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('加载当前模型失败: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,13 +55,15 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.smart_toy),
             title: const Text('AI模型配置'),
-            subtitle: const Text('配置API地址、模型名称和密钥'),
+            subtitle: _isLoading
+                ? const Text('加载中...')
+                : Text('当前模型：${_currentModel != null ? _currentModel!['customName'] : "无"}'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const AIModelConfigScreen(),
+                  builder: (context) => const AIModelListScreen(),
                 ),
               );
             },

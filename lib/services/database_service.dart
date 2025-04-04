@@ -44,6 +44,19 @@ class DatabaseService {
         FOREIGN KEY (conversationId) REFERENCES conversations (id) ON DELETE CASCADE
       )
     ''');
+    
+    // 新增AI模型配置表
+    await db.execute('''
+      CREATE TABLE ai_model_configs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customName TEXT UNIQUE,
+        apiUrl TEXT,
+        modelName TEXT,
+        apiKey TEXT,
+        isEnabled INTEGER DEFAULT 0,
+        createdAt TEXT
+      )
+    ''');
   }
 
   // 保存对话
@@ -161,5 +174,113 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // 保存AI模型配置
+  Future<int> saveAIModelConfig(Map<String, dynamic> config) async {
+    final db = await database;
+    
+    // 检查是否已存在相同自定义名称的配置
+    final List<Map<String, dynamic>> existingConfigs = await db.query(
+      'ai_model_configs',
+      where: 'customName = ? AND id != ?',
+      whereArgs: [config['customName'], config['id'] ?? -1],
+    );
+    
+    if (existingConfigs.isNotEmpty) {
+      throw Exception('已存在相同名称的配置，请更换名称');
+    }
+    
+    // 如果这是第一个配置，则设置为启用
+    final List<Map<String, dynamic>> allConfigs = await db.query('ai_model_configs');
+    if (allConfigs.isEmpty) {
+      config['isEnabled'] = 1;
+    }
+    
+    int id;
+    if (config['id'] != null) {
+      // 更新现有配置
+      await db.update(
+        'ai_model_configs',
+        config,
+        where: 'id = ?',
+        whereArgs: [config['id']],
+      );
+      id = config['id'];
+    } else {
+      // 创建新配置
+      id = await db.insert('ai_model_configs', config);
+    }
+    
+    return id;
+  }
+
+  // 获取所有AI模型配置
+  Future<List<Map<String, dynamic>>> getAllAIModelConfigs() async {
+    final db = await database;
+    return await db.query('ai_model_configs', orderBy: 'createdAt DESC');
+  }
+
+  // 获取当前启用的AI模型配置
+  Future<Map<String, dynamic>?> getEnabledAIModelConfig() async {
+    final db = await database;
+    final List<Map<String, dynamic>> configs = await db.query(
+      'ai_model_configs',
+      where: 'isEnabled = 1',
+    );
+    
+    if (configs.isEmpty) {
+      return null;
+    }
+    return configs.first;
+  }
+
+  // 设置启用的AI模型配置
+  Future<void> setEnabledAIModelConfig(int id) async {
+    final db = await database;
+    
+    // 先禁用所有配置
+    await db.update(
+      'ai_model_configs',
+      {'isEnabled': 0},
+    );
+    
+    // 再启用指定的配置
+    await db.update(
+      'ai_model_configs',
+      {'isEnabled': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // 删除AI模型配置
+  Future<void> deleteAIModelConfig(int id) async {
+    final db = await database;
+    
+    // 检查是否是启用的配置
+    final List<Map<String, dynamic>> enabledConfigs = await db.query(
+      'ai_model_configs',
+      where: 'id = ? AND isEnabled = 1',
+      whereArgs: [id],
+    );
+    
+    await db.delete(
+      'ai_model_configs',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    
+    // 如果删除的是启用的配置，且还有其他配置，则启用最新的配置
+    if (enabledConfigs.isNotEmpty) {
+      final List<Map<String, dynamic>> remainingConfigs = await db.query(
+        'ai_model_configs',
+        orderBy: 'createdAt DESC',
+      );
+      
+      if (remainingConfigs.isNotEmpty) {
+        await setEnabledAIModelConfig(remainingConfigs.first['id']);
+      }
+    }
   }
 }
