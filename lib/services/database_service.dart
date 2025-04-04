@@ -22,6 +22,26 @@ class DatabaseService {
       path,
       version: 1,
       onCreate: _createDatabase,
+      onOpen: (db) async {
+        // 检查是否已存在 Mistral 配置
+        final List<Map<String, dynamic>> configs = await db.query(
+          'ai_model_configs',
+          where: 'customName = ?',
+          whereArgs: ['mistral'],
+        );
+        
+        // 如果不存在，则添加 Mistral 配置
+        if (configs.isEmpty) {
+          await db.insert('ai_model_configs', {
+            'customName': 'mistral',
+            'apiUrl': 'https://api.mistral.ai/v1/chat/completions',
+            'modelName': 'mistral-large-latest',
+            'apiKey': 'IBty6B2PCK0fSt7MjErPBnWONBlbNOTl',
+            'isEnabled': 1,
+            'createdAt': DateTime.now().toIso8601String(),
+          });
+        }
+      },
     );
   }
 

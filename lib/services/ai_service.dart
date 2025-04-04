@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/database_service.dart';
+import '../services/sensitive_word_service.dart';
 
 class AIService {
   final DatabaseService _databaseService = DatabaseService();
+  final SensitiveWordService _sensitiveWordService = SensitiveWordService();
 
   Future<Map<String, String>> _getConfig() async {
     final config = await _databaseService.getEnabledAIModelConfig();
@@ -47,6 +49,14 @@ class AIService {
     String prompt,
     List<Map<String, dynamic>> history,
   ) async {
+    // 初始化敏感词服务
+    await _sensitiveWordService.initialize();
+    
+    // 检查用户输入是否包含敏感词
+    if (_sensitiveWordService.containsSensitiveWords(prompt)) {
+      return '抱歉，您的问题包含不当内容，请修改后重试。';
+    }
+
     int retryCount = 0;
     while (retryCount < _maxRetries) {
       try {
@@ -87,7 +97,10 @@ class AIService {
           // 使用 utf8.decode 解决中文乱码问题
           final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
           final content = jsonResponse['choices'][0]['message']['content'];
-          return content;
+          
+          // 过滤AI回复中的敏感词
+          final filteredContent = _sensitiveWordService.filterSensitiveWords(content);
+          return filteredContent;
         } else {
           throw Exception('API请求失败: ${response.statusCode} ${utf8.decode(response.bodyBytes)}');
         }
