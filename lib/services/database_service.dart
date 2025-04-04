@@ -151,4 +151,15 @@ class DatabaseService {
       whereArgs: [id],
     );
   }
+
+  // 更新对话标题
+  Future<void> updateConversationTitle(int id, String newTitle) async {
+    final db = await database;
+    await db.update(
+      'conversations',
+      {'title': newTitle},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }

@@ -112,6 +112,12 @@ class SpeechService {
   static const platform = MethodChannel('com.example.teacher/speech');
   bool _useNativeSpeech = false;
 
+  // 添加错误回调
+  Function(String)? _onSpeechError;
+  void setOnSpeechError(Function(String) callback) {
+    _onSpeechError = callback;
+  }
+
   Future<bool> initialize() async {
     try {
       debugPrint('正在初始化语音识别服务...');
@@ -131,6 +137,10 @@ class SpeechService {
         onError: (errorNotification) {
           debugPrint('语音识别错误: ${errorNotification.errorMsg}');
           _isListening = false;
+          // 通知外部语音识别出错
+          if (_onSpeechError != null) {
+            _onSpeechError!(errorNotification.errorMsg);
+          }
         },
       );
 
@@ -196,18 +206,27 @@ class SpeechService {
       try {
         debugPrint('开始语音识别...');
         _isListening = true;
-        await _speech.listen(
-          localeId: 'zh_CN',
-          listenMode: stt.ListenMode.confirmation,
+        
+        // 创建符合新API的SpeechListenOptions对象
+        final options = stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.dictation,
           cancelOnError: true,
           partialResults: true,
+          autoPunctuation: true,
+        );
+        
+        // 将options作为listenOptions参数传递，其他参数直接传递给listen方法
+        await _speech.listen(
           onResult: (result) {
             debugPrint('识别结果: ${result.recognizedWords} (是否最终结果: ${result.finalResult})');
-            if (result.finalResult) {
+            if (result.finalResult && result.recognizedWords.isNotEmpty) {
               onResult(result.recognizedWords);
-              _isListening = false;
             }
           },
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 2),
+          localeId: 'zh_CN',
+          listenOptions: options,
         );
         return true;
       } catch (e) {
@@ -222,16 +241,43 @@ class SpeechService {
   }
 
   Future<void> stopListening() async {
-    if (_useNativeSpeech) {
-      try {
-        await platform.invokeMethod('stopSpeechRecognition');
-      } catch (e) {
-        debugPrint('停止Android原生语音识别失败: $e');
+    debugPrint('SpeechService: 开始停止语音识别...');
+    
+    try {
+      if (_useNativeSpeech) {
+        try {
+          debugPrint('SpeechService: 停止Android原生语音识别');
+          await platform.invokeMethod('stopSpeechRecognition');
+        } catch (e) {
+          debugPrint('SpeechService: 停止Android原生语音识别失败: $e');
+        }
+      } else if (_speech.isListening) {
+        debugPrint('SpeechService: 停止speech_to_text语音识别');
+        await _speech.stop();
+        debugPrint('SpeechService: speech_to_text语音识别已停止');
+      } else {
+        debugPrint('SpeechService: speech_to_text不在监听状态，无需停止');
       }
-    } else {
-      await _speech.stop();
+    } catch (e) {
+      debugPrint('SpeechService: 停止语音识别时发生异常: $e');
+    } finally {
+      // 无论如何都要确保isListening标志被设置为false
+      _isListening = false;
+      debugPrint('SpeechService: isListening设置为false');
     }
-    _isListening = false;
+    
+    // 如果服务还在监听，尝试强制重置
+    if (_speech.isListening) {
+      debugPrint('SpeechService: 检测到语音服务仍在监听状态，尝试强制重置');
+      try {
+        // 尝试再次停止
+        await _speech.stop();
+      } catch (e) {
+        debugPrint('SpeechService: 强制停止失败: $e');
+      }
+    }
+    
+    debugPrint('SpeechService: 停止语音识别完成，当前状态: isListening=$isListening');
   }
 
   Future<void> openAppSettings() async {

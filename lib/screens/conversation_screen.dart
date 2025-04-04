@@ -10,6 +10,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import '../widgets/voice_input_bar.dart';
 
 // 自定义代码块构建器
 class CustomCodeBlockBuilder extends MarkdownElementBuilder {
@@ -97,6 +98,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final FocusNode _focusNode = FocusNode();
   final SpeechService _speechService = SpeechService();
   final ScrollController _scrollController = ScrollController();
+  bool _showVoiceInput = false;
 
   @override
   void initState() {
@@ -122,8 +124,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
         final conversation = await DatabaseService().getConversation(args);
         if (conversation != null && mounted) {
           await context.read<ConversationProvider>().loadConversation(conversation);
+          
           // 滚动到最新消息
           _scrollToBottom();
+          
+          // 额外添加一个延时滚动，确保滚动生效
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _scrollToBottom();
+            }
+          });
         }
       } else {
         // 如果是新对话，清空消息列表
@@ -201,45 +211,68 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final provider = context.read<ConversationProvider>();
     if (_speechService.isListening) {
       await _speechService.stopListening();
+      setState(() {
+        _showVoiceInput = false;
+      });
       return;
     }
 
-    try {
-      await _speechService.startListening((text) async {
-        if (text.isNotEmpty && mounted) {
-          setState(() {
-            _textController.text = text;
-          });
-          await provider.addMessage(Message(content: text, isUser: true, timestamp: DateTime.now()));
-          _textController.clear();
+    // 显示语音输入栏而不是直接开始识别
+    setState(() {
+      _showVoiceInput = true;
+    });
+  }
 
-          // 等待AI回复完成（与其他方法保持一致）
-          while (provider.isLoading) {
-            await Future.delayed(const Duration(milliseconds: 100));
-          }
-          
-          // 现在AI回复已完成，检查是否应该自动朗读
-          if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
-            final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
-            if (settings.autoRead) {
-              await _speechService.speak(
-                provider.messages.last.content,
-                language: 'zh-CN',
-                rate: settings.speechRate,
-                pitch: settings.speechPitch,
-                utteranceId: 'message_${provider.messages.last.id}'
-              );
-            }
-          }
-        }
+  // 处理取消语音输入
+  void _handleVoiceInputCancel() {
+    setState(() {
+      _showVoiceInput = false;
+    });
+  }
+  
+  // 处理发送语音输入的内容
+  void _handleVoiceInputSend() async {
+    if (_textController.text.isEmpty) {
+      setState(() {
+        _showVoiceInput = false;
       });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+      return;
+    }
+    
+    final currentText = _textController.text;
+    _textController.clear();
+    
+    setState(() {
+      _showVoiceInput = false;
+    });
+    
+    // 发送消息到AI
+    final provider = context.read<ConversationProvider>();
+    await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+    
+    // 等待AI回复完成
+    while (provider.isLoading) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    
+    // 检查是否自动朗读AI回复
+    if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+      final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+      if (settings.autoRead) {
+        await _speechService.speak(
+          provider.messages.last.content,
+          language: 'zh-CN',
+          rate: settings.speechRate,
+          pitch: settings.speechPitch,
+          utteranceId: 'message_${provider.messages.last.id}'
         );
       }
     }
+  }
+
+  // 处理语音识别文本变更
+  void _handleVoiceTextChanged(String text) {
+    // 这里只需要更新文本控制器，VoiceInputBar内部已经处理了
   }
 
   @override
@@ -272,7 +305,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           ),
                         );
                       },
+                      // 列表构建完成后尝试滚动到底部
+                      addAutomaticKeepAlives: true,
                     ),
+                    // 当消息列表变化且不为空时，滚动到底部
+                    if (provider.messages.isNotEmpty)
+                      Builder(builder: (context) {
+                        // 使用Builder确保在布局完成后运行
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _scrollToBottom();
+                        });
+                        return const SizedBox.shrink(); // 不显示任何内容的小部件
+                      }),
                     if (provider.isLoading)
                       Positioned(
                         bottom: 0,
@@ -280,62 +324,89 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         right: 0,
                         child: Container(), // 保留结构但不显示任何内容
                       ),
-                    if (_speechService.isListening)
-                      Positioned(
-                        top: 16.0,
-                        right: 16.0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(20.0),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.mic, color: Colors.white),
-                              const SizedBox(width: 8.0),
-                              const Text('正在聆听...', style: TextStyle(color: Colors.white)),
-                            ],
-                          ),
-                        ),
-                      ),
                   ],
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _textController,
-                    focusNode: _focusNode,
-                    decoration: InputDecoration(
-                      hintText: _speechService.isListening ? '正在聆听...' : '输入您的问题...',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _speechService.isListening ? Icons.mic : Icons.mic_none,
-                          color: _speechService.isListening ? Colors.red : null,
-                        ),
-                        onPressed: _startListening,
-                      ),
+          if (_showVoiceInput)
+            VoiceInputBar(
+              textController: _textController,
+              speechService: _speechService,
+              onTextChanged: _handleVoiceTextChanged,
+              onCancel: _handleVoiceInputCancel,
+              onSend: _handleVoiceInputSend,
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.mic_none),
+                    onPressed: _startListening,
+                    tooltip: '语音输入',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.7),
+                      foregroundColor: Theme.of(context).colorScheme.primary,
                     ),
-                    textInputAction: TextInputAction.send,
-                    onTap: () {
-                      if (_speechService.isListening) {
-                        _speechService.stopListening();
-                      }
-                      if (!_focusNode.hasFocus) {
-                        _focusNode.requestFocus();
-                      }
-                    },
-                    onSubmitted: (text) async {
-                      if (text.isNotEmpty) {
-                        final currentText = text;
+                    padding: const EdgeInsets.all(10),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _textController,
+                      focusNode: _focusNode,
+                      decoration: InputDecoration(
+                        hintText: '输入您的问题...',
+                        border: const OutlineInputBorder(),
+                      ),
+                      textInputAction: TextInputAction.send,
+                      onTap: () {
+                        if (_speechService.isListening) {
+                          _speechService.stopListening();
+                        }
+                        if (!_focusNode.hasFocus) {
+                          _focusNode.requestFocus();
+                        }
+                      },
+                      onSubmitted: (text) async {
+                        if (text.isNotEmpty) {
+                          final currentText = text;
+                          _textController.clear();
+                          
+                          // 发送消息到AI
+                          final provider = context.read<ConversationProvider>();
+                          await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
+                          
+                          // 等待AI回复完成（通过检查isLoading状态）
+                          while (provider.isLoading) {
+                            await Future.delayed(const Duration(milliseconds: 100));
+                          }
+                          
+                          // 现在AI回复已完成，检查是否自动朗读
+                          if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+                            final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+                            if (settings.autoRead) {
+                              await _speechService.speak(
+                                provider.messages.last.content,
+                                language: 'zh-CN',
+                                rate: settings.speechRate,
+                                pitch: settings.speechPitch,
+                                utteranceId: 'message_${provider.messages.last.id}'
+                              );
+                            }
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8.0),
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: () async {
+                      if (_textController.text.isNotEmpty) {
+                        final currentText = _textController.text;
                         _textController.clear();
                         
                         // 发送消息到AI
@@ -362,44 +433,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         }
                       }
                     },
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    tooltip: '发送',
                   ),
-                ),
-                const SizedBox(width: 8.0),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () async {
-                    if (_textController.text.isNotEmpty) {
-                      final currentText = _textController.text;
-                      _textController.clear();
-                      
-                      // 发送消息到AI
-                      final provider = context.read<ConversationProvider>();
-                      await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
-                      
-                      // 等待AI回复完成（通过检查isLoading状态）
-                      while (provider.isLoading) {
-                        await Future.delayed(const Duration(milliseconds: 100));
-                      }
-                      
-                      // 现在AI回复已完成，检查是否自动朗读
-                      if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
-                        final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
-                        if (settings.autoRead) {
-                          await _speechService.speak(
-                            provider.messages.last.content,
-                            language: 'zh-CN',
-                            rate: settings.speechRate,
-                            pitch: settings.speechPitch,
-                            utteranceId: 'message_${provider.messages.last.id}'
-                          );
-                        }
-                      }
-                    }
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -515,12 +558,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // 滚动到底部的方法
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+      // 增加延迟时间，确保ListView已经完成渲染
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    } else {
+      // 如果ScrollController还没有clients，等待框架下一帧再尝试滚动
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToBottom();
       });
     }
   }

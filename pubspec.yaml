@@ -39,6 +39,9 @@ dependencies:
   speech_to_text: 7.0.0
   flutter_tts: ^3.8.5
   
+  # 波形图显示
+  audio_waveforms: ^1.0.4
+  
   # HTTP请求
   http: ^1.2.0
   

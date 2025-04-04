@@ -127,6 +127,11 @@ class ConversationProvider with ChangeNotifier {
     await db.delete('conversations', where: 'id = ?', whereArgs: [id]);
   }
 
+  // 重命名对话
+  Future<void> renameConversation(int id, String newTitle) async {
+    await _databaseService.updateConversationTitle(id, newTitle);
+  }
+
   Future<void> _saveConversation() async {
     if (_messages.isEmpty) return;
     
