@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:characters/characters.dart';
 
 class DFANode {
-  Map<String, DFANode> next = {};
-  bool isEnd = false;
+  Map<String, DFANode> children = {};
+  bool isEndOfWord = false;
 }
 
 class SensitiveWordService {
@@ -15,62 +16,107 @@ class SensitiveWordService {
 
   DFANode root = DFANode();
   bool _isInitialized = false;
+  Set<String> _sensitiveWords = {};
 
   // 初始化DFA
   Future<void> initialize() async {
     if (_isInitialized) return;
-
+    
     try {
-      // 加载基础词库
-      final String content = await rootBundle.loadString('assets/sensitive_words/base.txt');
-      final List<String> words = content
-          .split('\n')
-          .where((word) => word.trim().isNotEmpty)
-          .toList();
-
+      // 从文件加载敏感词
+      final String sensitiveWordsString = await rootBundle.loadString('assets/sensitive_words/sensitive_words.txt');
+      final List<String> sensitiveWords = sensitiveWordsString.split('\n')
+        .where((word) => word.trim().isNotEmpty)
+        .toList();
+      
       // 构建DFA
-      for (var word in words) {
-        addWord(word.trim());
+      for (var word in sensitiveWords) {
+        _addWord(word.trim());
       }
       
       _isInitialized = true;
     } catch (e) {
-      print('初始化敏感词库失败: $e');
-      rethrow;
+      print('Error loading sensitive words: $e');
+      _isInitialized = true; // 即使加载失败也标记为已初始化，避免重复尝试
     }
   }
 
-  // 添加敏感词到DFA
-  void addWord(String word) {
-    if (word.isEmpty) return;
-    
-    DFANode current = root;
-    for (var char in word.characters) {
-      current.next[char] ??= DFANode();
-      current = current.next[char]!;
+  // 添加单词到DFA
+  void _addWord(String word) {
+    var current = root;
+    for (var char in word.toLowerCase().characters) {
+      current.children.putIfAbsent(char, () => DFANode());
+      current = current.children[char]!;
     }
-    current.isEnd = true;
+    current.isEndOfWord = true;
   }
 
   // 检查文本是否包含敏感词
-  bool containsSensitiveWords(String text) {
-    if (!ENABLE_SENSITIVE_WORD_FILTER || text.isEmpty) {
+  Future<bool> containsSensitiveWord(String text) async {
+    await initialize();
+    return _checkText(text);
+  }
+
+  bool _checkText(String text) {
+    if (!_isInitialized) {
+      print('Warning: SensitiveWordService not initialized');
       return false;
     }
 
-    for (int i = 0; i < text.length; i++) {
-      DFANode current = root;
-      int index = i;
-      
-      while (index < text.length && current.next.containsKey(text[index])) {
-        current = current.next[text[index]]!;
-        if (current.isEnd) {
+    final lowerText = text.toLowerCase();
+    for (var i = 0; i < lowerText.length; i++) {
+      var current = root;
+      var j = i;
+      while (j < lowerText.length && current.children.containsKey(lowerText[j])) {
+        current = current.children[lowerText[j]]!;
+        if (current.isEndOfWord) {
           return true;
         }
-        index++;
+        j++;
       }
     }
     return false;
+  }
+
+  // 过滤文本中的敏感词
+  String filterSensitiveWords(String text) {
+    if (!_isInitialized) {
+      print('Warning: SensitiveWordService not initialized');
+      return text;
+    }
+
+    var result = text;
+    var lowerText = text.toLowerCase();
+    var positions = <MapEntry<int, int>>[];
+
+    for (var i = 0; i < lowerText.length; i++) {
+      var current = root;
+      var j = i;
+      var lastEndPos = -1;
+
+      while (j < lowerText.length && current.children.containsKey(lowerText[j])) {
+        current = current.children[lowerText[j]]!;
+        if (current.isEndOfWord) {
+          lastEndPos = j;
+        }
+        j++;
+      }
+
+      if (lastEndPos != -1) {
+        positions.add(MapEntry(i, lastEndPos + 1));
+        i = lastEndPos;
+      }
+    }
+
+    // 从后向前替换，避免位置改变
+    for (var pos in positions.reversed) {
+      var start = pos.key;
+      var end = pos.value;
+      var length = end - start;
+      result = result.replaceRange(start, end, '*' * length);
+    }
+
+    return result;
   }
 
   // 查找所有敏感词
@@ -85,10 +131,10 @@ class SensitiveWordService {
       String word = '';
       int index = i;
       
-      while (index < text.length && current.next.containsKey(text[index])) {
-        current = current.next[text[index]]!;
+      while (index < text.length && current.children.containsKey(text[index])) {
+        current = current.children[text[index]]!;
         word += text[index];
-        if (current.isEnd) {
+        if (current.isEndOfWord) {
           result.add(word);
           break;
         }
@@ -96,21 +142,5 @@ class SensitiveWordService {
       }
     }
     return result.toList();
-  }
-
-  // 替换敏感词为 *
-  String filterSensitiveWords(String text) {
-    if (!ENABLE_SENSITIVE_WORD_FILTER || text.isEmpty) {
-      return text;
-    }
-
-    String result = text;
-    final sensitiveWords = findAllSensitiveWords(text);
-    
-    for (var word in sensitiveWords) {
-      result = result.replaceAll(word, '*' * word.length);
-    }
-    
-    return result;
   }
 } 

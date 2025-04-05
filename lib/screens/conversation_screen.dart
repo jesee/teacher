@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/conversation_provider.dart';
@@ -11,6 +12,8 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import '../widgets/voice_input_bar.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 // 自定义代码块构建器
 class CustomCodeBlockBuilder extends MarkdownElementBuilder {
@@ -99,6 +102,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final SpeechService _speechService = SpeechService();
   final ScrollController _scrollController = ScrollController();
   bool _showVoiceInput = false;
+  String? _selectedImagePath;
+  String? _selectedImageBase64;
 
   @override
   void initState() {
@@ -275,6 +280,75 @@ class _ConversationScreenState extends State<ConversationScreen> {
     // 这里只需要更新文本控制器，VoiceInputBar内部已经处理了
   }
 
+  // 选择图片
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      final base64String = base64Encode(bytes);
+      
+      setState(() {
+        _selectedImagePath = image.path;
+        _selectedImageBase64 = base64String;
+      });
+    }
+  }
+
+  // 清除已选择的图片
+  void _clearSelectedImage() {
+    setState(() {
+      _selectedImagePath = null;
+      _selectedImageBase64 = null;
+    });
+  }
+
+  // 发送消息
+  Future<void> _sendMessage(String text) async {
+    if (text.isEmpty && _selectedImageBase64 == null) return;
+    
+    final currentText = text;
+    _textController.clear();
+    
+    // 如果有图片，创建带图片的消息
+    final message = Message(
+      content: currentText,
+      isUser: true,
+      timestamp: DateTime.now(),
+      imageBase64: _selectedImageBase64,
+    );
+    
+    // 清除已选择的图片
+    setState(() {
+      _selectedImagePath = null;
+      _selectedImageBase64 = null;
+    });
+    
+    // 发送消息到AI
+    final provider = context.read<ConversationProvider>();
+    await provider.addMessage(message);
+    
+    // 等待AI回复完成
+    while (provider.isLoading) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    
+    // 检查是否自动朗读AI回复
+    if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
+      final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
+      if (settings.autoRead) {
+        await _speechService.speak(
+          provider.messages.last.content,
+          language: 'zh-CN',
+          rate: settings.speechRate,
+          pitch: settings.speechPitch,
+          utteranceId: 'message_${provider.messages.last.id}'
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -305,35 +379,65 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           ),
                         );
                       },
-                      // 列表构建完成后尝试滚动到底部
-                      addAutomaticKeepAlives: true,
                     ),
-                    // 当消息列表变化且不为空时，滚动到底部
                     if (provider.messages.isNotEmpty)
                       Builder(builder: (context) {
-                        // 使用Builder确保在布局完成后运行
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           _scrollToBottom();
                         });
-                        return const SizedBox.shrink(); // 不显示任何内容的小部件
+                        return const SizedBox.shrink();
                       }),
                     if (provider.isLoading)
                       Positioned(
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: Container(), // 保留结构但不显示任何内容
+                        child: Container(),
                       ),
                   ],
                 );
               },
             ),
           ),
+          if (_selectedImagePath != null)
+            Container(
+              padding: const EdgeInsets.all(8.0),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, -1),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(_selectedImagePath!),
+                      height: 60,
+                      width: 60,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _clearSelectedImage,
+                    color: Colors.grey[600],
+                  ),
+                ],
+              ),
+            ),
           if (_showVoiceInput)
             VoiceInputBar(
               textController: _textController,
               speechService: _speechService,
-              onTextChanged: _handleVoiceTextChanged,
+              onTextChanged: (text) {},
               onCancel: _handleVoiceInputCancel,
               onSend: _handleVoiceInputSend,
             )
@@ -353,13 +457,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     padding: const EdgeInsets.all(10),
                   ),
                   const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.image),
+                    onPressed: _pickImage,
+                    tooltip: '选择图片',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.7),
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                    ),
+                    padding: const EdgeInsets.all(10),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _textController,
                       focusNode: _focusNode,
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         hintText: '输入您的问题...',
-                        border: const OutlineInputBorder(),
+                        border: OutlineInputBorder(),
                       ),
                       textInputAction: TextInputAction.send,
                       onTap: () {
@@ -370,69 +485,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           _focusNode.requestFocus();
                         }
                       },
-                      onSubmitted: (text) async {
-                        if (text.isNotEmpty) {
-                          final currentText = text;
-                          _textController.clear();
-                          
-                          // 发送消息到AI
-                          final provider = context.read<ConversationProvider>();
-                          await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
-                          
-                          // 等待AI回复完成（通过检查isLoading状态）
-                          while (provider.isLoading) {
-                            await Future.delayed(const Duration(milliseconds: 100));
-                          }
-                          
-                          // 现在AI回复已完成，检查是否自动朗读
-                          if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
-                            final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
-                            if (settings.autoRead) {
-                              await _speechService.speak(
-                                provider.messages.last.content,
-                                language: 'zh-CN',
-                                rate: settings.speechRate,
-                                pitch: settings.speechPitch,
-                                utteranceId: 'message_${provider.messages.last.id}'
-                              );
-                            }
-                          }
-                        }
-                      },
+                      onSubmitted: (text) => _sendMessage(text),
                     ),
                   ),
                   const SizedBox(width: 8.0),
                   IconButton(
                     icon: const Icon(Icons.send),
-                    onPressed: () async {
-                      if (_textController.text.isNotEmpty) {
-                        final currentText = _textController.text;
-                        _textController.clear();
-                        
-                        // 发送消息到AI
-                        final provider = context.read<ConversationProvider>();
-                        await provider.addMessage(Message(content: currentText, isUser: true, timestamp: DateTime.now()));
-                        
-                        // 等待AI回复完成（通过检查isLoading状态）
-                        while (provider.isLoading) {
-                          await Future.delayed(const Duration(milliseconds: 100));
-                        }
-                        
-                        // 现在AI回复已完成，检查是否自动朗读
-                        if (provider.messages.isNotEmpty && !provider.messages.last.isUser) {
-                          final settings = Provider.of<SpeechSettingsProvider>(context, listen: false);
-                          if (settings.autoRead) {
-                            await _speechService.speak(
-                              provider.messages.last.content,
-                              language: 'zh-CN',
-                              rate: settings.speechRate,
-                              pitch: settings.speechPitch,
-                              utteranceId: 'message_${provider.messages.last.id}'
-                            );
-                          }
-                        }
-                      }
-                    },
+                    onPressed: () => _sendMessage(_textController.text),
                     style: IconButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
@@ -489,6 +548,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (message.imageBase64 != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(
+                base64Decode(message.imageBase64!),
+                fit: BoxFit.cover,
+                width: 200,
+              ),
+            ),
+          ),
         SelectionArea(
           child: MarkdownBody(
             data: message.content,
@@ -504,7 +575,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 fontFamily: 'monospace',
               ),
               codeblockDecoration: BoxDecoration(
-                // color: Colors.black12,
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
@@ -528,7 +598,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   pitch: settings.speechPitch,
                   utteranceId: messageId,
                 );
-                // 强制刷新UI以更新图标状态
                 if (mounted) setState(() {});
               },
               tooltip: isCurrentlyPlaying ? '停止播放' : '朗读消息',

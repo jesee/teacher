@@ -36,6 +36,7 @@ class Message {
   final bool isUser;
   final DateTime timestamp;
   final bool isLoading;
+  final String? imageBase64;
 
   Message({
     this.id,
@@ -44,6 +45,7 @@ class Message {
     required this.isUser,
     required this.timestamp,
     this.isLoading = false,
+    this.imageBase64,
   });
 
   Map<String, dynamic> toMap() {
@@ -53,6 +55,7 @@ class Message {
       'content': content,
       'isUser': isUser ? 1 : 0,
       'timestamp': timestamp.toIso8601String(),
+      'imageBase64': imageBase64,
     };
   }
 
@@ -63,6 +66,7 @@ class Message {
       content: map['content'],
       isUser: map['isUser'] == 1,
       timestamp: DateTime.parse(map['timestamp']),
+      imageBase64: map['imageBase64'],
     );
   }
 
@@ -74,6 +78,7 @@ class Message {
       isUser: isUser,
       timestamp: timestamp,
       isLoading: true,
+      imageBase64: imageBase64,
     );
   }
 
@@ -85,6 +90,30 @@ class Message {
       isUser: isUser,
       timestamp: timestamp,
       isLoading: false,
+      imageBase64: imageBase64,
     );
+  }
+
+  List<Map<String, dynamic>> toApiFormat() {
+    List<Map<String, dynamic>> content = [];
+    
+    if (this.content.isNotEmpty) {
+      content.add({
+        "type": "text",
+        "text": this.content
+      });
+    }
+    
+    if (this.imageBase64 != null) {
+      content.add({
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/jpeg;base64,${this.imageBase64}",
+          "detail": "low"
+        }
+      });
+    }
+    
+    return content;
   }
 }

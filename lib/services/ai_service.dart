@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/database_service.dart';
 import '../services/sensitive_word_service.dart';
+import '../models/conversation.dart';
 
 class AIService {
   final DatabaseService _databaseService = DatabaseService();
@@ -45,74 +46,155 @@ class AIService {
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
 
-  Future<String> getAIResponse(
-    String prompt,
-    List<Map<String, dynamic>> history,
-  ) async {
-    // 初始化敏感词服务
-    await _sensitiveWordService.initialize();
+  Future<String> getAIResponse(String message, List<Map<String, dynamic>> history) async {
+    final config = await _getConfig();
     
-    // 检查用户输入是否包含敏感词
-    if (_sensitiveWordService.containsSensitiveWords(prompt)) {
-      return '抱歉，您的问题包含不当内容，请修改后重试。';
+    // 检查敏感词
+    final containsSensitiveWord = await _sensitiveWordService.containsSensitiveWord(message);
+    if (containsSensitiveWord) {
+      return '抱歉，您的消息包含敏感词，请修改后重试。';
     }
-
+    
+    final url = Uri.parse(config['apiUrl']!);
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${config['apiKey']}',
+    };
+    
+    final body = {
+      'model': config['modelName'],
+      'messages': [
+        {
+          'role': 'system',
+          'content': _systemPrompt,
+        },
+        ...history.map((msg) => {
+          'role': msg['isUser'] ? 'user' : 'assistant',
+          'content': msg['content'],
+        }).toList(),
+        {
+          'role': 'user',
+          'content': message,
+        },
+      ],
+      'temperature': 0.7,
+      'max_tokens': 0,
+    };
+    
     int retryCount = 0;
     while (retryCount < _maxRetries) {
       try {
-        final config = await _getConfig();
-        
-        final messages = [
-          {'role': 'system', 'content': _systemPrompt},
-        ];
-        
-        // 添加历史消息
-        for (var message in history) {
-          messages.add({
-            'role': message['isUser'] ? 'user' : 'assistant',
-            'content': message['content'],
-          });
-        }
-        
-        // 添加当前用户的提问
-        messages.add({
-          'role': 'user',
-          'content': prompt,
-        });
-        
         final response = await http.post(
-          Uri.parse(config['apiUrl']!),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config['apiKey']}',
-          },
-          body: jsonEncode({
-            'model': config['modelName'],
-            'messages': messages,
-            'temperature': 0.7,
-          }),
+          url,
+          headers: headers,
+          body: jsonEncode(body),
         );
         
         if (response.statusCode == 200) {
-          // 使用 utf8.decode 解决中文乱码问题
           final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-          final content = jsonResponse['choices'][0]['message']['content'];
-          
-          // 过滤AI回复中的敏感词
-          final filteredContent = _sensitiveWordService.filterSensitiveWords(content);
-          return filteredContent;
+          return jsonResponse['choices'][0]['message']['content'];
+        } else if (response.statusCode == 401) {
+          return '抱歉，API认证失败，请检查API密钥是否正确。';
+        } else if (response.statusCode == 429) {
+          return '抱歉，请求过于频繁，请稍后再试。';
         } else {
-          throw Exception('API请求失败: ${response.statusCode} ${utf8.decode(response.bodyBytes)}');
+          print('API request failed with status: ${response.statusCode}');
+          print('Response body: ${response.body}');
+          retryCount++;
+          if (retryCount < _maxRetries) {
+            await Future.delayed(_retryDelay * retryCount);
+            continue;
+          }
+          return '抱歉，服务暂时不可用，请稍后再试。';
         }
       } catch (e) {
+        print('Error in getAIResponse: $e');
         retryCount++;
-        if (retryCount >= _maxRetries) {
-          return '抱歉，我无法回答你的问题。错误: ${e.toString()}';
+        if (retryCount < _maxRetries) {
+          await Future.delayed(_retryDelay * retryCount);
+          continue;
         }
-        await Future.delayed(_retryDelay);
+        return '抱歉，网络连接不稳定，请检查网络后重试。';
       }
     }
     
-    return '抱歉，服务器暂时无法响应，请稍后再试。';
+    return '抱歉，服务暂时不可用，请稍后再试。';
+  }
+
+  Future<String> getAIResponseWithImage(Message message, List<Map<String, dynamic>> history) async {
+    final config = await _getConfig();
+    
+    // 检查敏感词
+    final containsSensitiveWord = await _sensitiveWordService.containsSensitiveWord(message.content);
+    if (containsSensitiveWord) {
+      return '抱歉，您的消息包含敏感词，请修改后重试。';
+    }
+    
+    final url = Uri.parse(config['apiUrl']!);
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${config['apiKey']}',
+    };
+    
+    final body = {
+      'model': config['modelName'],
+      'messages': [
+        {
+          'role': 'system',
+          'content': _systemPrompt,
+        },
+        ...history.map((msg) => {
+          'role': msg['isUser'] ? 'user' : 'assistant',
+          'content': msg['content'],
+        }).toList(),
+        {
+          'role': 'user',
+          'content': message.toApiFormat(),
+        },
+      ],
+      'temperature': 0.7,
+      'max_tokens': 0,
+    };
+    
+    int retryCount = 0;
+    while (retryCount < _maxRetries) {
+      try {
+        final response = await http.post(
+          url,
+          headers: headers,
+          body: jsonEncode(body),
+        );
+        print('request url: ${url}');
+        print('request header: ${jsonEncode(headers)}');
+        print('request body: ${jsonEncode(body)}');
+        if (response.statusCode == 200) {
+          final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));//jsonDecode(utf8.decode(response.bodyBytes));
+          return jsonResponse['choices'][0]['message']['content'];
+        } else if (response.statusCode == 401) {
+          return '抱歉，API认证失败，请检查API密钥是否正确。';
+        } else if (response.statusCode == 429) {
+          return '抱歉，请求过于频繁，请稍后再试。';
+        } else {
+          print('API request failed with status: ${response.statusCode}');
+          print('Response body: ${response.body}');
+          retryCount++;
+          if (retryCount < _maxRetries) {
+            await Future.delayed(_retryDelay * retryCount);
+            continue;
+          }
+          return '抱歉，服务暂时不可用，请稍后再试。';
+        }
+      } catch (e) {
+        print('Error in getAIResponseWithImage: $e');
+        retryCount++;
+        if (retryCount < _maxRetries) {
+          await Future.delayed(_retryDelay * retryCount);
+          continue;
+        }
+        return '抱歉，网络连接不稳定，请检查网络后重试。';
+      }
+    }
+    
+    return '抱歉，服务暂时不可用，请稍后再试。';
   }
 }

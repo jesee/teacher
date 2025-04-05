@@ -26,8 +26,8 @@ class DatabaseService {
         // 检查是否已存在 Mistral 配置
         final List<Map<String, dynamic>> configs = await db.query(
           'ai_model_configs',
-          where: 'customName = ?',
-          whereArgs: ['mistral'],
+          where: 'isEnabled = ?',
+          whereArgs: [1],
         );
         
         // 如果不存在，则添加 Mistral 配置
@@ -76,6 +76,7 @@ class DatabaseService {
         content TEXT,
         isUser INTEGER,
         timestamp TEXT,
+        imageBase64 TEXT,
         FOREIGN KEY (conversationId) REFERENCES conversations (id) ON DELETE CASCADE
       )
     ''');

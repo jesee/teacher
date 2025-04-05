@@ -34,7 +34,7 @@ class ConversationProvider with ChangeNotifier {
   }
 
   Future<void> addMessage(Message message) async {
-    _messages.add(Message(content: message.content, isUser: true, timestamp: DateTime.now()));
+    _messages.add(message);
     notifyListeners();
     
     // 触发消息添加回调
@@ -64,7 +64,9 @@ class ConversationProvider with ChangeNotifier {
           'content': m.content,
         }).toList();
 
-      final response = await _aiService.getAIResponse(message.content, history);
+      final response = message.imageBase64 != null
+        ? await _aiService.getAIResponseWithImage(message, history)
+        : await _aiService.getAIResponse(message.content, history);
       
       // 移除加载中的消息
       _messages.removeWhere((m) => m.isLoading);
@@ -83,7 +85,6 @@ class ConversationProvider with ChangeNotifier {
         }
       } else {
         await addAIResponse(response);
-        // 移除此处的自动语音播放，由ConversationScreen控制
       }
     } catch (e) {
       print('Error in addMessage: $e');
@@ -105,8 +106,6 @@ class ConversationProvider with ChangeNotifier {
     _onMessageAdded?.call();
     
     await _saveConversation();
-    
-    // 移除此处的自动语音播放，由ConversationScreen控制
   }
 
   void clearMessages() {
