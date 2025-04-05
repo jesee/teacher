@@ -17,6 +17,31 @@ class _AIModelConfigScreenState extends State<AIModelConfigScreen> {
   final _apiUrlController = TextEditingController();
   final _modelNameController = TextEditingController();
   
+  String _selectedProvider = 'OpenRouter';  // 默认选择OpenRouter
+  bool _supportsImage = false;
+  bool _supportsDocument = false;
+  bool _supportsInternet = false;
+  
+  // 定义所有支持的提供商
+  final List<String> _providers = [
+    'OpenRouter',
+    'Anthropic',
+    'AWS Bedrock',
+    'DeepSeek',
+    'GCP Vertex AI',
+    'Glama',
+    'Google Gemini',
+    'Human Relay',
+    'LM Studio',
+    'Mistral',
+    'Ollama',
+    'OpenAI',
+    'OpenAI Compatible',
+    'Requesty',
+    'Unbound',
+    'VS Code LM API'
+  ];
+  
   Map<String, dynamic>? _currentConfig;
   final DatabaseService _databaseService = DatabaseService();
   bool _isLoading = true;
@@ -40,6 +65,10 @@ class _AIModelConfigScreenState extends State<AIModelConfigScreen> {
         _apiKeyController.text = _currentConfig!['apiKey'] ?? '';
         _apiUrlController.text = _currentConfig!['apiUrl'] ?? '';
         _modelNameController.text = _currentConfig!['modelName'] ?? '';
+        _selectedProvider = _currentConfig!['provider'] ?? 'OpenRouter';
+        _supportsImage = _currentConfig!['supportsImage'] == 1;
+        _supportsDocument = _currentConfig!['supportsDocument'] == 1;
+        _supportsInternet = _currentConfig!['supportsInternet'] == 1;
       } else {
         // 如果是新建配置，设置默认值
         _apiUrlController.text = '';
@@ -65,6 +94,10 @@ class _AIModelConfigScreenState extends State<AIModelConfigScreen> {
           'apiKey': _apiKeyController.text,
           'apiUrl': _apiUrlController.text,
           'modelName': _modelNameController.text,
+          'provider': _selectedProvider,
+          'supportsImage': _supportsImage,
+          'supportsDocument': _supportsDocument,
+          'supportsInternet': _supportsInternet,
           'createdAt': DateTime.now().toIso8601String(),
         };
         
@@ -127,6 +160,29 @@ class _AIModelConfigScreenState extends State<AIModelConfigScreen> {
                             return '请输入自定义名称';
                           }
                           return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // 模型提供商下拉选择框
+                      DropdownButtonFormField<String>(
+                        value: _selectedProvider,
+                        decoration: const InputDecoration(
+                          labelText: '模型提供商',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _providers.map((String provider) {
+                          return DropdownMenuItem<String>(
+                            value: provider,
+                            child: Text(provider),
+                          );
+                        }).toList(),
+                        onChanged: (String? newValue) {
+                          if (newValue != null) {
+                            setState(() {
+                              _selectedProvider = newValue;
+                            });
+                          }
                         },
                       ),
                       const SizedBox(height: 16),
@@ -195,6 +251,54 @@ class _AIModelConfigScreenState extends State<AIModelConfigScreen> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // 功能支持复选框
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '功能支持',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              CheckboxListTile(
+                                title: const Text('支持图片'),
+                                value: _supportsImage,
+                                onChanged: (bool? value) {
+                                  setState(() {
+                                    _supportsImage = value ?? false;
+                                  });
+                                },
+                              ),
+                              CheckboxListTile(
+                                title: const Text('支持文档'),
+                                value: _supportsDocument,
+                                onChanged: (bool? value) {
+                                  setState(() {
+                                    _supportsDocument = value ?? false;
+                                  });
+                                },
+                              ),
+                              CheckboxListTile(
+                                title: const Text('支持连网'),
+                                value: _supportsInternet,
+                                onChanged: (bool? value) {
+                                  setState(() {
+                                    _supportsInternet = value ?? false;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 24),
                       

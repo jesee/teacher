@@ -18,10 +18,12 @@ class DatabaseService {
 
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'teacher_app.db');
+    
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDatabase,
+      onUpgrade: _onUpgrade,
       onOpen: (db) async {
         // 检查是否已存在 Mistral 配置
         final List<Map<String, dynamic>> configs = await db.query(
@@ -35,16 +37,16 @@ class DatabaseService {
           // 批量插入conversations表
           await db.rawInsert('''
             INSERT INTO ai_model_configs 
-            (customName, apiUrl, modelName, apiKey, isEnabled, createdAt)
+            (customName, apiUrl, modelName, apiKey, isEnabled, provider, supportsImage, supportsDocument, supportsInternet, createdAt)
             VALUES 
-            ('deepseek-chat-v3-0324(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-chat-v3-0324:free', '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', 0, ?),
-            ('deepseek-r1(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-r1:free', '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', 0, ?),
-            ('qwen2.5-vl-72b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'qwen/qwen2.5-vl-72b-instruct:free', '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', 0, ?),
-            ('gemini-2.0-flash-thinking-exp(1.24B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-thinking-exp:free', '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', 0, ?),
-            ('gemini-2.0-flash-exp(31.1B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-exp:free', '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', 0, ?),
-            ('mistral-large(图X)', 'https://api.mistral.ai/v1/chat/completions', 'mistral-large-latest', 'IBty6B2PCK0fSt7MjErPBnWONBlbNOTl', 1, ?),
-            ('mistral-small-3.1-24b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'mistralai/mistral-small-3.1-24b-instruct:free', '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', 0, ?),
-            ('gemini-2.5-pro-exp-03-25(142B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.5-pro-exp-03-25:free', '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', 0, ?)
+            ('deepseek-chat-v3-0324(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-chat-v3-0324:free', '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', 0, 'OpenRouter', 0, 0, 0, ?),
+            ('deepseek-r1(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-r1:free', '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', 0, 'OpenRouter', 0, 0, 0, ?),
+            ('qwen2.5-vl-72b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'qwen/qwen2.5-vl-72b-instruct:free', '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', 0, 'OpenRouter', 1, 0, 0, ?),
+            ('gemini-2.0-flash-thinking-exp(1.24B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-thinking-exp:free', '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', 0, 'OpenRouter', 1, 0, 0, ?),
+            ('gemini-2.0-flash-exp(31.1B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-exp:free', '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', 0, 'OpenRouter', 1, 0, 0, ?),
+            ('mistral-large(图X)', 'https://api.mistral.ai/v1/chat/completions', 'mistral-large-latest', 'IBty6B2PCK0fSt7MjErPBnWONBlbNOTl', 0, 'Mistral', 0, 0, 0, ?),
+            ('mistral-small-3.1-24b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'mistralai/mistral-small-3.1-24b-instruct:free', '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', 0, 'OpenRouter', 1, 0, 0, ?),
+            ('gemini-2.5-pro-exp-03-25(142B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.5-pro-exp-03-25:free', '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', 1, 'OpenRouter', 1, 0, 0, ?)
           ''', [
             DateTime.now().toIso8601String(),
             DateTime.now().toIso8601String(), 
@@ -58,6 +60,25 @@ class DatabaseService {
         }
       },
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // 添加新字段
+      try {
+        await db.execute('''
+          ALTER TABLE ai_model_configs ADD COLUMN provider TEXT DEFAULT 'OpenRouter';
+          ALTER TABLE ai_model_configs ADD COLUMN supportsImage INTEGER DEFAULT 0;
+          ALTER TABLE ai_model_configs ADD COLUMN supportsDocument INTEGER DEFAULT 0;
+          ALTER TABLE ai_model_configs ADD COLUMN supportsInternet INTEGER DEFAULT 0;
+        ''');
+        print('Database upgraded successfully from version $oldVersion to $newVersion');
+      } catch (e) {
+        print('Error upgrading database: $e');
+        // 如果ALTER TABLE失败，可能是因为表不存在，尝试重新创建表
+        await _createDatabase(db, newVersion);
+      }
+    }
   }
 
   Future<void> _createDatabase(Database db, int version) async {
@@ -90,6 +111,10 @@ class DatabaseService {
         modelName TEXT,
         apiKey TEXT,
         isEnabled INTEGER DEFAULT 0,
+        provider TEXT,
+        supportsImage INTEGER DEFAULT 0,
+        supportsDocument INTEGER DEFAULT 0,
+        supportsInternet INTEGER DEFAULT 0,
         createdAt TEXT
       )
     ''');
@@ -216,6 +241,11 @@ class DatabaseService {
   Future<int> saveAIModelConfig(Map<String, dynamic> config) async {
     final db = await database;
     
+    // 确保布尔字段的值是整数
+    config['supportsImage'] = config['supportsImage'] == true ? 1 : 0;
+    config['supportsDocument'] = config['supportsDocument'] == true ? 1 : 0;
+    config['supportsInternet'] = config['supportsInternet'] == true ? 1 : 0;
+    
     // 检查是否已存在相同自定义名称的配置
     final List<Map<String, dynamic>> existingConfigs = await db.query(
       'ai_model_configs',
@@ -245,6 +275,7 @@ class DatabaseService {
       id = config['id'];
     } else {
       // 创建新配置
+      config['createdAt'] = DateTime.now().toIso8601String();
       id = await db.insert('ai_model_configs', config);
     }
     

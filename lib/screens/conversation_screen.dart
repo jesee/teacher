@@ -104,6 +104,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _showVoiceInput = false;
   String? _selectedImagePath;
   String? _selectedImageBase64;
+  bool _supportsImage = false;  // 添加支持图片标志
 
   @override
   void initState() {
@@ -117,6 +118,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
       // 设置context给conversationProvider
       final provider = Provider.of<ConversationProvider>(context, listen: false);
       provider.setContext(context);
+      
+      // 获取当前启用的模型配置
+      final config = await DatabaseService().getEnabledAIModelConfig();
+      if (mounted && config != null) {
+        setState(() {
+          _supportsImage = config['supportsImage'] == 1;
+        });
+      }
       
       // 设置消息添加回调，自动滚动到底部
       provider.setOnMessageAdded(() {
@@ -457,17 +466,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     padding: const EdgeInsets.all(10),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.image),
-                    onPressed: _pickImage,
-                    tooltip: '选择图片',
-                    style: IconButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.7),
-                      foregroundColor: Theme.of(context).colorScheme.primary,
+                  if (_supportsImage)  // 只在支持图片时显示上传按钮
+                    IconButton(
+                      icon: const Icon(Icons.image),
+                      onPressed: _pickImage,
+                      tooltip: '选择图片',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.7),
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                      ),
+                      padding: const EdgeInsets.all(10),
                     ),
-                    padding: const EdgeInsets.all(10),
-                  ),
-                  const SizedBox(width: 8),
+                  if (_supportsImage)  // 只在支持图片时添加间距
+                    const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _textController,
