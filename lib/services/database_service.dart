@@ -32,14 +32,29 @@ class DatabaseService {
         
         // 如果不存在，则添加 Mistral 配置
         if (configs.isEmpty) {
-          await db.insert('ai_model_configs', {
-            'customName': 'mistral',
-            'apiUrl': 'https://api.mistral.ai/v1/chat/completions',
-            'modelName': 'mistral-large-latest',
-            'apiKey': 'IBty6B2PCK0fSt7MjErPBnWONBlbNOTl',
-            'isEnabled': 1,
-            'createdAt': DateTime.now().toIso8601String(),
-          });
+          // 批量插入conversations表
+          await db.rawInsert('''
+            INSERT INTO ai_model_configs 
+            (customName, apiUrl, modelName, apiKey, isEnabled, createdAt)
+            VALUES 
+            ('deepseek-chat-v3-0324(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-chat-v3-0324:free', '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', 0, ?),
+            ('deepseek-r1(图X)', 'https://openrouter.ai/api/v1/chat/completions', 'deepseek/deepseek-r1:free', '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', 0, ?),
+            ('qwen2.5-vl-72b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'qwen/qwen2.5-vl-72b-instruct:free', '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', 0, ?),
+            ('gemini-2.0-flash-thinking-exp(1.24B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-thinking-exp:free', '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', 0, ?),
+            ('gemini-2.0-flash-exp(31.1B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.0-flash-exp:free', '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', 0, ?),
+            ('mistral-large(图X)', 'https://api.mistral.ai/v1/chat/completions', 'mistral-large-latest', 'IBty6B2PCK0fSt7MjErPBnWONBlbNOTl', 1, ?),
+            ('mistral-small-3.1-24b-instruct', 'https://openrouter.ai/api/v1/chat/completions', 'mistralai/mistral-small-3.1-24b-instruct:free', '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', 0, ?),
+            ('gemini-2.5-pro-exp-03-25(142B)', 'https://openrouter.ai/api/v1/chat/completions', 'google/gemini-2.5-pro-exp-03-25:free', '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', 0, ?)
+          ''', [
+            DateTime.now().toIso8601String(),
+            DateTime.now().toIso8601String(), 
+            DateTime.now().toIso8601String(), 
+            DateTime.now().toIso8601String(), 
+            DateTime.now().toIso8601String(),
+            DateTime.now().toIso8601String(),
+            DateTime.now().toIso8601String(),
+            DateTime.now().toIso8601String()
+          ]);
         }
       },
     );
